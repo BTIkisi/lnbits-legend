@@ -31,6 +31,8 @@ from tests.helpers import (
 
 asyncio.set_event_loop_policy(uvloop.EventLoopPolicy())
 
+ADMIN_USER_ID = uuid4().hex
+
 
 @pytest.fixture(scope="session")
 def anyio_backend():
@@ -107,6 +109,20 @@ async def user_alan():
         await delete_account(account.id)
 
     yield await new_user("alan")
+
+
+@pytest.fixture(scope="session")
+async def admin_user():
+    username = "admin"
+    account = Account(
+        id=ADMIN_USER_ID,
+        email=f"{username}@lnbits.com",
+        username=username,
+    )
+    account.hash_password("secret1234")
+    user = await create_user_account(account)
+
+    return user
 
 
 @pytest.fixture(scope="session")
@@ -316,7 +332,7 @@ def _settings_cleanup(settings: Settings):
     settings.lnbits_reserve_fee_percent = 0
     settings.lnbits_wallet_limit_daily_max_withdraw = 0
     settings.lnbits_admin_extensions = []
-    settings.lnbits_admin_users = []
+    settings.lnbits_admin_users = [ADMIN_USER_ID]
     settings.lnbits_max_outgoing_payment_amount_sats = 10_000_000_100
     settings.lnbits_max_incoming_payment_amount_sats = 10_000_000_200
     settings.stripe_limits = FiatProviderLimits()
