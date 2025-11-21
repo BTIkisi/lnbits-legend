@@ -431,6 +431,8 @@ class Operator(Enum):
     INCLUDE = "in"
     EXCLUDE = "ex"
     LIKE = "like"
+    EVERY = "every"
+    ANY = "any"
 
     @property
     def as_sql(self):
@@ -450,7 +452,7 @@ class Operator(Enum):
             return ">="
         elif self == Operator.LE:
             return "<="
-        elif self == Operator.LIKE:
+        elif self in {Operator.LIKE, Operator.EVERY, Operator.ANY}:
             return "LIKE"
         else:
             raise ValueError("Unknown SQL Operator")
@@ -481,6 +483,8 @@ class Filter(BaseModel, Generic[TFilterModel]):
     def parse_query(
         cls, key: str, raw_values: list[Any], model: type[TFilterModel], i: int = 0
     ):
+        if i > 1000 or len(raw_values) > 1000:
+            raise ValueError("Too many filter values")
         # Key format:
         # key[operator]
         # e.g. name[eq]
@@ -497,11 +501,14 @@ class Filter(BaseModel, Generic[TFilterModel]):
         if field in model.__fields__:
             compare_field = model.__fields__[field]
             values: dict = {}
-            for raw_value in raw_values:
+            if op in {Operator.EVERY, Operator.ANY}:
+                raw_values = [v for rv in raw_values for v in rv.split(",")]
+
+            for index, raw_value in enumerate(raw_values):
                 validated, errors = compare_field.validate(raw_value, {}, loc="none")
                 if errors:
                     raise ValidationError(errors=[errors], model=model)
-                values[f"{field}__{i}"] = validated
+                values[f"{field}__{index}"] = validated
         else:
             raise ValueError("Unknown filter field")
 
@@ -514,10 +521,16 @@ class Filter(BaseModel, Generic[TFilterModel]):
             clean_key = key.split("__")[0]
             if self.model and self.model.__fields__[clean_key].type_ == datetime:
                 placeholder = compat_timestamp_placeholder(key)
+                stmt.append(f"{clean_key} {self.op.as_sql} {placeholder}")
             else:
-                placeholder = f":{key}"
-            stmt.append(f"{clean_key} {self.op.as_sql} {placeholder}")
-        return " OR ".join(stmt)
+                stmt.append(f"{clean_key} {self.op.as_sql} :{key}")
+
+        if self.op == Operator.EVERY:
+            statement = " AND ".join(stmt)
+        else:
+            statement = " OR ".join(stmt)
+
+        return f"({statement})"
 
 
 class Filters(BaseModel, Generic[TFilterModel]):
@@ -593,6 +606,8 @@ class Filters(BaseModel, Generic[TFilterModel]):
                     for key, value in page_filter.values.items():
                         if page_filter.op == Operator.LIKE:
                             values[key] = f"%{value}%"
+                        elif page_filter.op in {Operator.EVERY, Operator.ANY}:
+                            values[key] = f"""%"{value}"%"""
                         else:
                             values[key] = value
         if self.search and self.model:

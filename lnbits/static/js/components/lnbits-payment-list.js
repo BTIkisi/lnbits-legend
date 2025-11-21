@@ -121,7 +121,9 @@ window.app.component('lnbits-payment-list', {
         show: false,
         payment: null,
         preimage: null
-      }
+      },
+      selectedPayment: null,
+      filterLabels: []
     }
   },
   computed: {
@@ -161,10 +163,24 @@ window.app.component('lnbits-payment-list', {
 
       this.fetchPayments()
     },
+    searchByLabels(labels) {
+      if (!labels || labels.length === 0) {
+        this.clearLabelSeach()
+        return
+      }
+      this.filterLabels = labels
+      this.paymentsTable.filter['labels[every]'] = labels
+      this.fetchPayments()
+    },
     clearDateSeach() {
       this.searchDate = {from: null, to: null}
       delete this.paymentFilter['time[ge]']
       delete this.paymentFilter['time[le]']
+      this.fetchPayments()
+    },
+    clearLabelSeach() {
+      this.filterLabels = []
+      delete this.paymentsTable.filter['labels[every]']
       this.fetchPayments()
     },
     fetchPayments(props) {
@@ -354,6 +370,47 @@ window.app.component('lnbits-payment-list', {
         paymentFilter['amount[le]'] = 0
       }
       this.paymentFilter = paymentFilter
+    },
+    async savePaymentLabels(labels) {
+      if (!this.selectedPayment) {
+        Quasar.Notify.create({
+          type: 'warning',
+          message: 'No payment selected'
+        })
+        return
+      }
+      try {
+        await LNbits.api.request(
+          'PUT',
+          `/api/v1/payments/${this.selectedPayment.payment_hash}/labels`,
+          this.g.wallet.adminkey,
+          {
+            labels: labels
+          }
+        )
+
+        const payment = this.payments.find(
+          p => p.checking_id === this.selectedPayment.checking_id
+        )
+        if (payment) {
+          payment.labels = [...labels]
+        }
+
+        Quasar.Notify.create({
+          type: 'positive',
+          message: this.$t('payment_labels_updated')
+        })
+      } catch (error) {
+        LNbits.utils.notifyApiError(error)
+      }
+    },
+    isLightColor(color) {
+      try {
+        return Quasar.colors.luminosity(color) > 0.5
+      } catch (e) {
+        console.warning(e)
+        return false
+      }
     }
   },
   watch: {

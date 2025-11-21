@@ -12,6 +12,7 @@ from lnbits.db import FilterModel
 from lnbits.helpers import (
     is_valid_email_address,
     is_valid_external_id,
+    is_valid_label,
     is_valid_pubkey,
     is_valid_username,
 )
@@ -36,6 +37,14 @@ class WalletInviteRequest(BaseModel):
     to_wallet_name: str
 
 
+class UserLabel(BaseModel):
+    name: str = Field(regex=r"([A-Za-z0-9 ._-]{1,100}$)")
+    description: str | None = Field(default=None, max_length=250)
+    color: str | None = Field(
+        default=None, regex=r"^#[0-9A-Fa-f]{6}$"
+    )  # e.g., "#RRGGBB"
+
+
 class UserExtra(BaseModel):
     email_verified: bool | None = False
     first_name: str | None = None
@@ -54,6 +63,8 @@ class UserExtra(BaseModel):
     notifications: UserNotifications = UserNotifications()
 
     wallet_invite_requests: list[WalletInviteRequest] = []
+
+    labels: list[UserLabel] = []
 
     def add_wallet_invite_request(
         self,
@@ -77,6 +88,18 @@ class UserExtra(BaseModel):
             if invite.request_id == request_id:
                 return invite
         return None
+
+    def validate_labels(self):
+        seen_labels = set()
+        for label in self.labels:
+            if not label.name:
+                raise ValueError("Label name cannot be empty.")
+            # apply the same rule for labels as for usernames
+            if not is_valid_label(label.name):
+                raise ValueError(f"Invalid label name: {label.name}")
+            if label.name in seen_labels:
+                raise ValueError(f"Duplicate label name: {label.name}")
+            seen_labels.add(label.name)
 
     def remove_wallet_invite_request(
         self,
@@ -201,6 +224,8 @@ class Account(BaseModel):
         user_uuid4 = UUID(hex=self.id, version=4)
         if user_uuid4.hex != self.id:
             raise ValueError("User ID is not valid UUID4 hex string.")
+
+        self.extra.validate_labels()
 
 
 class AccountOverview(Account):

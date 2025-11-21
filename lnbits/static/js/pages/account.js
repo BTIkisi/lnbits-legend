@@ -4,6 +4,7 @@ window.PageAccount = {
   data() {
     return {
       user: null,
+      untouchedUser: null,
       hasUsername: false,
       showUserId: false,
       themeOptions: [
@@ -145,6 +146,47 @@ window.PageAccount = {
         nostr: {
           identifier: ''
         }
+      },
+      labels: [],
+      labelsDialog: {
+        show: false,
+        data: {
+          name: '',
+          description: '',
+          color: '#000000'
+        }
+      },
+      labelsTable: {
+        loading: false,
+        columns: [
+          {
+            name: 'actions',
+            align: 'left'
+          },
+          {
+            name: 'name',
+            align: 'left',
+            label: this.$t('Name'),
+            field: 'name',
+            sortable: true
+          },
+          {
+            name: 'description',
+            align: 'left',
+            label: this.$t('description'),
+            field: 'description'
+          },
+          {
+            name: 'color',
+            align: 'left',
+            label: this.$t('color'),
+            field: 'color'
+          }
+        ],
+        pagination: {
+          rowsPerPage: 6,
+          page: 1
+        }
       }
     }
   },
@@ -157,6 +199,11 @@ window.PageAccount = {
         }
         this.getUserAssets()
       }
+    }
+  },
+  computed: {
+    isUserTouched() {
+      return JSON.stringify(this.user) !== JSON.stringify(this.untouchedUser)
     }
   },
   methods: {
@@ -181,6 +228,7 @@ window.PageAccount = {
           }
         )
         this.user = data
+        this.untouchedUser = JSON.parse(JSON.stringify(data))
         this.hasUsername = !!data.username
         Quasar.Notify.create({
           type: 'positive',
@@ -220,6 +268,7 @@ window.PageAccount = {
           }
         )
         this.user = data
+        this.untouchedUser = JSON.parse(JSON.stringify(data))
         this.hasUsername = !!data.username
         this.credentialsData.show = false
         Quasar.Notify.create({
@@ -242,6 +291,7 @@ window.PageAccount = {
           }
         )
         this.user = data
+        this.untouchedUser = JSON.parse(JSON.stringify(data))
         this.hasUsername = !!data.username
         this.credentialsData.show = false
         this.$q.notify({
@@ -558,6 +608,73 @@ window.PageAccount = {
     copyAssetLinkToClipboard(asset) {
       const assetUrl = `${window.location.origin}/api/v1/assets/${asset.id}/binary`
       this.copyText(assetUrl)
+    },
+    addUserLabel() {
+      if (!this.labelsDialog.data.name) {
+        this.$q.notify({
+          type: 'warning',
+          message: 'Name is required.'
+        })
+        return
+      }
+      if (!this.labelsDialog.data.color) {
+        this.$q.notify({
+          type: 'warning',
+          message: 'Color is required.'
+        })
+        return
+      }
+      this.user.extra.labels = this.user.extra.labels || []
+      const duplicate = this.user.extra.labels.find(
+        label => label.name === this.labelsDialog.data.name
+      )
+      if (duplicate) {
+        this.$q.notify({
+          type: 'warning',
+          message: 'A label with this name already exists.'
+        })
+        return
+      }
+      this.user.extra.labels.unshift({...this.labelsDialog.data})
+      this.labelsDialog.show = false
+      return true
+    },
+    openAddLabelDialog() {
+      this.labelsDialog.data = {
+        name: '',
+        description: '',
+        color: '#000000'
+      }
+      this.labelsDialog.show = true
+    },
+    openEditLabelDialog(label) {
+      this.labelsDialog.data = {
+        name: label.name,
+        description: label.description,
+        color: label.color
+      }
+      this.labelsDialog.show = true
+    },
+    updateUserLabel() {
+      const label = this.labelsDialog.data
+      const existingLabels = JSON.parse(JSON.stringify(this.user.extra.labels))
+      this.user.extra.labels = this.user.extra.labels.filter(
+        l => l.name !== label.name
+      )
+      const labelUpdated = this.addUserLabel()
+      if (!labelUpdated) {
+        this.user.extra.labels = existingLabels
+      }
+      this.labelsDialog.show = false
+    },
+    deleteUserLabel(label) {
+      LNbits.utils
+        .confirmDialog('Are you sure you want to delete this label?')
+        .onOk(() => {
+          this.user.extra.labels = this.user.extra.labels.filter(
+            l => l.name !== label.name
+          )
+        })
     }
   },
 
@@ -565,6 +682,7 @@ window.PageAccount = {
     try {
       const {data} = await LNbits.api.getAuthenticatedUser()
       this.user = data
+      this.untouchedUser = JSON.parse(JSON.stringify(data))
       this.hasUsername = !!data.username
       if (!this.user.extra) this.user.extra = {}
     } catch (e) {

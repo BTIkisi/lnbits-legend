@@ -6,8 +6,17 @@
           <div class="row items-center justify-between q-gutter-xs">
             <div class="col">
               <q-btn @click="updateAccount" unelevated color="primary">
+                <q-badge
+                  v-if="isUserTouched"
+                  color="negative"
+                  size="xs"
+                  floating
+                ></q-badge>
                 <span v-text="$t('update_account')"></span>
               </q-btn>
+              <q-badge v-if="isUserTouched" class="q-ml-sm" color="primary">
+                <span v-text="$t('must_save')"></span>
+              </q-badge>
             </div>
           </div>
         </div>
@@ -20,6 +29,7 @@
       <q-card>
         <q-splitter>
           <template v-slot:before>
+            <!-- todo: small screen as in settings -->
             <q-tabs v-model="tab" vertical active-color="primary">
               <q-tab
                 name="user"
@@ -70,6 +80,16 @@
               >
                 <q-tooltip v-if="!$q.screen.gt.sm"
                   ><span v-text="$t('assets')"></span
+                ></q-tooltip>
+              </q-tab>
+              <q-tab
+                name="labels"
+                icon="local_offer"
+                :label="$q.screen.gt.sm ? $t('labels') : ''"
+                @update="val => (tab = val.name)"
+              >
+                <q-tooltip v-if="!$q.screen.gt.sm"
+                  ><span v-text="$t('labels')"></span
                 ></q-tooltip>
               </q-tab>
             </q-tabs>
@@ -1027,6 +1047,92 @@
                     </q-table>
                   </q-card-section>
                 </q-tab-panel>
+                <q-tab-panel name="labels">
+                  <q-card-section>
+                    <div class="row">
+                      <div class="col-md-2 col-sm-12">
+                        <q-btn
+                          @click="openAddLabelDialog()"
+                          :label="$t('add_label')"
+                          color="primary"
+                          class="full-width"
+                        ></q-btn>
+                      </div>
+                      <div class="col-md-1 col-sm-12"></div>
+                      <div class="col-md-9 col-sm-12">
+                        <q-input
+                          :label="$t('search')"
+                          dense
+                          class="full-width q-pb-xl"
+                          v-model="labelsTable.search"
+                        >
+                          <template v-slot:before>
+                            <q-icon name="search"> </q-icon>
+                          </template>
+                          <template v-slot:append>
+                            <q-icon
+                              v-if="labelsTable.search !== ''"
+                              name="close"
+                              @click="labelsTable.search = ''"
+                              class="cursor-pointer"
+                            >
+                            </q-icon>
+                          </template>
+                        </q-input>
+                      </div>
+                    </div>
+                  </q-card-section>
+                  <q-separator></q-separator>
+                  <q-card-section>
+                    <q-table
+                      :rows="user.extra.labels"
+                      :columns="labelsTable.columns"
+                      v-model:pagination="labelsTable.pagination"
+                      :loading="labelsTable.loading"
+                      row-key="name"
+                      :filter="labelsTable.search"
+                    >
+                      <template v-slot:body="props">
+                        <q-tr :props="props">
+                          <q-td key="actions" :props="props">
+                            <q-btn
+                              @click="openEditLabelDialog(props.row)"
+                              dense
+                              flat
+                              icon="edit"
+                              color="primary"
+                            ></q-btn>
+                            <q-btn
+                              @click="deleteUserLabel(props.row)"
+                              dense
+                              flat
+                              icon="delete"
+                              color="negative"
+                              class="q-ml-md"
+                            ></q-btn>
+                          </q-td>
+                          <q-td key="name" :props="props">
+                            <span v-text="props.row.name"></span>
+                          </q-td>
+                          <q-td key="description" :props="props">
+                            <span v-text="props.row.description"></span>
+                          </q-td>
+                          <q-td key="color" :props="props">
+                            <q-badge
+                              class="q-pa-sm"
+                              :style="{
+                                backgroundColor: props.row.color,
+                                color: 'white'
+                              }"
+                            >
+                              <span v-text="props.row.color"></span>
+                            </q-badge>
+                          </q-td>
+                        </q-tr>
+                      </template>
+                    </q-table>
+                  </q-card-section>
+                </q-tab-panel>
               </q-tab-panels>
             </q-scroll-area>
           </template>
@@ -1053,16 +1159,16 @@
       </div>
       <div class="row q-mt-lg">
         <q-btn
-          @click="runPasswordGuardedFunction()"
-          :label="$t('ok')"
-          color="primary"
-        ></q-btn>
-        <q-btn
           v-close-popup
           flat
           color="grey"
           class="q-ml-auto"
           v-text="$t('cancel')"
+        ></q-btn>
+        <q-btn
+          @click="runPasswordGuardedFunction()"
+          :label="$t('ok')"
+          color="primary"
         ></q-btn>
       </div>
     </q-card>
@@ -1163,6 +1269,83 @@
           color="grey"
           class="q-ml-auto"
           v-text="$t('close')"
+        ></q-btn>
+      </div>
+    </q-card>
+  </q-dialog>
+  <q-dialog v-model="labelsDialog.show" position="top">
+    <q-card class="q-pa-md q-pt-md lnbits__dialog-card">
+      <strong v-text="$t('label')"></strong>
+      <div class="row q-mt-md q-col-gutter-md">
+        <div class="col-12">
+          <q-input
+            v-model="labelsDialog.data.name"
+            dense
+            filled
+            :label="$t('name')"
+          >
+          </q-input>
+        </div>
+        <div class="col-12">
+          <q-input
+            v-model="labelsDialog.data.description"
+            dense
+            filled
+            type="textarea"
+            rows="3"
+            :label="$t('description')"
+          >
+          </q-input>
+        </div>
+        <div class="col-12">
+          <q-input
+            v-model="labelsDialog.data.color"
+            filled
+            dense
+            class="my-input"
+          >
+            <template v-slot:append>
+              <q-icon name="colorize" class="cursor-pointer">
+                <q-popup-proxy
+                  cover
+                  transition-show="scale"
+                  transition-hide="scale"
+                >
+                  <q-color
+                    v-model="labelsDialog.data.color"
+                    default-view="palette"
+                  />
+                </q-popup-proxy>
+              </q-icon>
+            </template>
+          </q-input>
+        </div>
+      </div>
+      <div class="row q-mt-lg">
+        <q-btn
+          v-close-popup
+          flat
+          color="grey"
+          class="q-ml-auto"
+          v-text="$t('cancel')"
+        ></q-btn>
+        <q-btn
+          v-if="
+            user.extra.labels.some(
+              label => label.name === labelsDialog.data.name
+            )
+          "
+          @click="updateUserLabel()"
+          :disable="!labelsDialog.data.name || !labelsDialog.data.color"
+          :label="$t('update_label')"
+          color="primary"
+        ></q-btn>
+        <q-btn
+          v-else
+          @click="addUserLabel()"
+          :disable="!labelsDialog.data.name || !labelsDialog.data.color"
+          :label="$t('add_label')"
+          color="primary"
         ></q-btn>
       </div>
     </q-card>
