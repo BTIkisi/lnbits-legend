@@ -222,7 +222,22 @@ class Connection(Compat):
         filters: Filters | None = None,
         model: type[TModel] | None = None,
         group_by: list[str] | None = None,
+        table_name: str | None = None,
     ) -> Page[TModel]:
+        """
+        Parameters:
+            query: The main SQL query string to execute for data retrieval.
+            where: list of additional WHERE clause conditions to filter results.
+            values: dictionary of parameter values to be used in the SQL query.
+            filters: object for advanced filtering, sorting, and pagination logic.
+            model: pydantic model type to map query results into model instances.
+            group_by: list of column names to group results by in the SQL query.
+            table_name: if provided some optimisations can be applied.
+        """
+
+        if table_name and not _valid_sql_name(table_name):
+            raise ValueError(f"Invalid table name: '{table_name}'.")
+
         if not filters:
             filters = Filters()
         clause = filters.where(where)
@@ -231,9 +246,7 @@ class Connection(Compat):
         group_by_string = ""
         if group_by:
             for field in group_by:
-                if not re.fullmatch(
-                    r"[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?", field
-                ):
+                if not _valid_sql_name(field):
                     raise ValueError("Value for GROUP BY is invalid")
             group_by_string = f"GROUP BY {', '.join(group_by)}"
 
@@ -251,16 +264,17 @@ class Connection(Compat):
         if rows:
             # no need for extra query if no pagination is specified
             if filters.offset or filters.limit:
-                result = await self.execute(
-                    f"""
-                    SELECT COUNT(*) as count FROM (
+                if table_name:
+                    count_query = f"SELECT COUNT(*) as count FROM {table_name} {clause}"  # noqa: S608
+                else:
+                    count_query = f"""SELECT COUNT(*) as count
+                    FROM (
                         {query}
                         {clause}
                         {group_by_string}
-                    ) as count
-                    """,  # noqa: S608
-                    parsed_values,
-                )
+                    ) as count"""  # noqa: S608
+
+                result = await self.execute(count_query, parsed_values)
                 row = result.mappings().first()
                 result.close()
                 count = int(row.get("count", 0))
@@ -393,9 +407,12 @@ class Database(Compat):
         filters: Filters | None = None,
         model: type[TModel] | None = None,
         group_by: list[str] | None = None,
+        table_name: str | None = None,
     ) -> Page[TModel]:
         async with self.connect() as conn:
-            return await conn.fetch_page(query, where, values, filters, model, group_by)
+            return await conn.fetch_page(
+                query, where, values, filters, model, group_by, table_name
+            )
 
     async def execute(self, query: str, values: dict | None = None):
         async with self.connect() as conn:
@@ -750,3 +767,11 @@ def _safe_load_json(value: str) -> dict:
         # DB is corrupted if it gets here
         logger.error(f"Failed to decode JSON: '{value}'")
         return {}
+
+
+def _valid_sql_name(name: str) -> bool:
+    """Check if a SQL name is valid (alphanumeric and underscores only)"""
+    return (
+        re.fullmatch(r"[a-zA-Z_][a-zA-Z0-9_]*(\.[a-zA-Z_][a-zA-Z0-9_]*)?", name)
+        is not None
+    )
