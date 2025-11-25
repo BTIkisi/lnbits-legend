@@ -235,11 +235,14 @@ class Connection(Compat):
             table_name: if provided some optimisations can be applied.
         """
 
-        if table_name and not _valid_sql_name(table_name):
-            raise ValueError(f"Invalid table name: '{table_name}'.")
-
         if not filters:
             filters = Filters()
+
+        if table_name:
+            if not _valid_sql_name(table_name):
+                raise ValueError(f"Invalid table name: '{table_name}'.")
+            filters.set_table_name(table_name)
+
         clause = filters.where(where)
         parsed_values = filters.values(values)
 
@@ -491,6 +494,7 @@ class Page(BaseModel, Generic[T]):
 
 
 class Filter(BaseModel, Generic[TFilterModel]):
+    table_name: str | None = None
     field: str
     op: Operator = Operator.EQ
     model: type[TFilterModel] | None
@@ -533,20 +537,20 @@ class Filter(BaseModel, Generic[TFilterModel]):
 
     @property
     def statement(self) -> str:
+        prefix = f"{self.table_name}." if self.table_name else ""
         stmt = []
         for key in self.values.keys() if self.values else []:
             clean_key = key.split("__")[0]
             if self.model and self.model.__fields__[clean_key].type_ == datetime:
                 placeholder = compat_timestamp_placeholder(key)
-                stmt.append(f"{clean_key} {self.op.as_sql} {placeholder}")
+                stmt.append(f"{prefix}{clean_key} {self.op.as_sql} {placeholder}")
             else:
-                stmt.append(f"{clean_key} {self.op.as_sql} :{key}")
+                stmt.append(f"{prefix}{clean_key} {self.op.as_sql} :{key}")
 
         if self.op == Operator.EVERY:
             statement = " AND ".join(stmt)
         else:
             statement = " OR ".join(stmt)
-
         return f"({statement})"
 
 
@@ -563,12 +567,13 @@ class Filters(BaseModel, Generic[TFilterModel]):
     search: str | None = None
 
     offset: int | None = None
-    limit: int | None = None
-
+    limit: int | None = 10
     sortby: str | None = None
     direction: Literal["asc", "desc"] | None = None
 
     model: type[TFilterModel] | None = None
+
+    table_name: str | None = None
 
     @root_validator(pre=True)
     def validate_sortby(cls, values):
@@ -584,8 +589,8 @@ class Filters(BaseModel, Generic[TFilterModel]):
 
     def pagination(self) -> str:
         stmt = ""
-        if self.limit:
-            stmt += f"LIMIT {self.limit} "
+        self.limit = self.limit or 10
+        stmt += f"LIMIT {min(1000, self.limit)} "
         if self.offset:
             stmt += f"OFFSET {self.offset}"
         return stmt
@@ -611,7 +616,8 @@ class Filters(BaseModel, Generic[TFilterModel]):
 
     def order_by(self) -> str:
         if self.sortby:
-            return f"ORDER BY {self.sortby} {self.direction or 'asc'}"
+            prefix = f"{self.table_name}." if self.table_name else ""
+            return f"ORDER BY {prefix}{self.sortby} {self.direction or 'asc'}"
         return ""
 
     def values(self, values: dict | None = None) -> dict:
@@ -630,6 +636,11 @@ class Filters(BaseModel, Generic[TFilterModel]):
         if self.search and self.model:
             values["search"] = f"%{self.search.lower()}%"
         return values
+
+    def set_table_name(self, table_name: str) -> None:
+        self.table_name = table_name
+        for page_filter in self.filters:
+            page_filter.table_name = table_name
 
 
 class DbJsonEncoder(json.JSONEncoder):

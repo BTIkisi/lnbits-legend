@@ -515,7 +515,44 @@
           >
             <template v-slot:header="props">
               <q-tr :props="props">
-                <q-th auto-width></q-th>
+                <q-th auto-width>
+                  <q-btn-dropdown color="primary" icon="sort" flat dense>
+                    <q-list>
+                      <template
+                        class="full-width"
+                        v-for="column in usersTable.sortFields"
+                        :key="column.name"
+                      >
+                        <q-item
+                          @click="sortByColumn(column.name)"
+                          clickable
+                          v-ripple
+                          v-close-popup
+                          dense
+                        >
+                          <q-item-section>
+                            <q-item-label lines="1" class="full-width"
+                              ><span v-text="column.label"></span
+                            ></q-item-label>
+                          </q-item-section>
+                          <q-item-section side>
+                            <template
+                              v-if="
+                                usersTable.pagination.sortBy === column.name
+                              "
+                            >
+                              <q-icon
+                                v-if="usersTable.pagination.descending"
+                                name="arrow_downward"
+                              ></q-icon>
+                              <q-icon v-else name="arrow_upward"></q-icon>
+                            </template>
+                          </q-item-section>
+                        </q-item>
+                      </template>
+                    </q-list>
+                  </q-btn-dropdown>
+                </q-th>
                 <q-th v-for="col in props.cols" :key="col.name" :props="props">
                   <q-input
                     v-if="

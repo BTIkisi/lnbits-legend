@@ -237,7 +237,7 @@ class AccountOverview(Account):
 
 class AccountFilters(FilterModel):
     __search_fields__ = [
-        "user",
+        "id",
         "email",
         "username",
         "pubkey",
@@ -245,17 +245,18 @@ class AccountFilters(FilterModel):
         "wallet_id",
     ]
     __sort_fields__ = [
-        "balance_msat",
+        "id",
         "email",
         "username",
-        "transaction_count",
-        "wallet_count",
-        "last_payment",
+        "pubkey",
+        "external_id",
+        "created_at",
+        "updated_at",
     ]
 
-    email: str | None = None
-    user: str | None = None
+    id: str | None = None
     username: str | None = None
+    email: str | None = None
     pubkey: str | None = None
     external_id: str | None = None
     wallet_id: str | None = None
