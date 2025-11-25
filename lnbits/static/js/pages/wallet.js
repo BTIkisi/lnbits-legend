@@ -1,4 +1,5 @@
-window.WalletPageLogic = {
+window.PageWallet = {
+  template: '#page-wallet',
   mixins: [window.windowMixin],
   data() {
     return {
@@ -104,9 +105,6 @@ window.WalletPageLogic = {
     showCamera() {
       this.parse.camera.show = true
     },
-    focusInput(el) {
-      this.$nextTick(() => this.$refs[el].focus())
-    },
     showReceiveDialog() {
       this.receive.show = true
       this.receive.status = 'pending'
@@ -121,7 +119,6 @@ window.WalletPageLogic = {
         : 'sat'
       this.receive.minMax = [0, 2100000000000000]
       this.receive.lnurl = null
-      this.focusInput('setAmount')
     },
     onReceiveDialogHide() {
       if (this.hasNfc) {
@@ -140,7 +137,6 @@ window.WalletPageLogic = {
       this.parse.data.internalMemo = null
       this.parse.data.paymentChecker = null
       this.parse.camera.show = false
-      this.focusInput('textArea')
     },
     closeParseDialog() {
       setTimeout(() => {
@@ -645,8 +641,24 @@ window.WalletPageLogic = {
       this.decodeRequest()
       this.parse.show = true
     }
+    if (urlParams.has('wal')) {
+      const wallet = g.user.wallets.find(w => w.id === urlParams.get('wal'))
+      if (wallet) {
+        this.selectWallet(wallet)
+      }
+    } else {
+      const wallet = g.user.wallets.find(w => w.id === this.g.lastActiveWallet)
+      if (wallet) {
+        this.selectWallet(wallet)
+      } else if (g.user.wallets.length > 0) {
+        this.selectWallet(g.user.wallets[0])
+      }
+    }
   },
   watch: {
+    'g.lastActiveWallet'(val) {
+      this.$q.localStorage.setItem('lnbits.lastActiveWallet', val)
+    },
     'g.updatePayments'() {
       this.parse.show = false
       if (this.receive.paymentHash === this.g.updatePaymentsHash) {
@@ -667,9 +679,13 @@ window.WalletPageLogic = {
       }
     },
     'g.wallet'() {
-      if (this.g.wallet.currency && this.g.fiatTracking) {
+      if (this.g.wallet.currency) {
+        this.g.fiatTracking = true
         this.g.fiatBalance =
           (this.g.exchangeRate / 100000000) * this.g.wallet.sat
+      } else {
+        this.g.fiatBalance = 0
+        this.g.fiatTracking = false
       }
     },
     'g.isFiatPriority'() {
