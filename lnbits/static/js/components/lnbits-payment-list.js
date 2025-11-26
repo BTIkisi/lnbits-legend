@@ -46,10 +46,10 @@ window.app.component('lnbits-payment-list', {
       paymentsCSV: {
         columns: [
           {
-            name: 'pending',
-            align: 'left',
-            label: 'Pending',
-            field: 'pending'
+            name: 'status',
+            align: 'right',
+            label: this.$t('status'),
+            field: 'status'
           },
           {
             name: 'memo',
