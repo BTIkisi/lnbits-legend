@@ -29,6 +29,13 @@ const routes = [
   },
   {
     path: '/wallet',
+    redirect: to => {
+      const walletId = window.g?.lastActiveWallet || window.user?.wallets[0].id
+      return `/wallet/${to.query.val || walletId || 'default'}`
+    }
+  },
+  {
+    path: '/wallet/:id',
     name: 'Wallet',
     component: PageWallet
   },
