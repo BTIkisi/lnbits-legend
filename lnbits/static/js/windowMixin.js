@@ -1,5 +1,15 @@
 window.windowMixin = {
   methods: {
+    handleScan(val) {
+      if (this.g.scanDetectCallback) {
+        this.g.scanDetectCallback(val)
+        this.g.scanDetectCallback = null
+      }
+    },
+    openScanDialog(scanDetectCallback) {
+      this.g.showScanner = true
+      this.g.scanDetectCallback = scanDetectCallback
+    },
     openNewWalletDialog(walletType = 'lightning') {
       this.g.newWalletType = walletType
       this.g.showNewWalletDialog = true
