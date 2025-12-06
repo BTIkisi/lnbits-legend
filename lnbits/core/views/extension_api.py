@@ -7,9 +7,10 @@ from fastapi import APIRouter, Depends, HTTPException
 from loguru import logger
 
 from lnbits.core.crud.extensions import get_user_extensions
+from lnbits.core.crud.wallets import get_wallets_ids
+from lnbits.core.db import db
 from lnbits.core.models import (
     SimpleStatus,
-    User,
 )
 from lnbits.core.models.extensions import (
     CreateExtension,
@@ -23,7 +24,7 @@ from lnbits.core.models.extensions import (
     UserExtension,
     UserExtensionInfo,
 )
-from lnbits.core.models.users import AccountId
+from lnbits.core.models.users import Account, AccountId
 from lnbits.core.services import check_transaction_status, create_invoice
 from lnbits.core.services.extensions import (
     activate_extension,
@@ -144,9 +145,10 @@ async def api_extension_details(
 async def api_update_pay_to_enable(
     ext_id: str,
     data: PayToEnableInfo,
-    user: User = Depends(check_admin),
+    account: Account = Depends(check_admin),
 ) -> SimpleStatus:
-    if data.wallet not in user.wallet_ids:
+    user_wallet_ids = await get_wallets_ids(account.id, deleted=False)
+    if data.wallet not in user_wallet_ids:
         raise HTTPException(
             HTTPStatus.BAD_REQUEST, "Wallet does not belong to this admin user."
         )
@@ -462,15 +464,16 @@ async def get_extension_release(org: str, repo: str, tag_name: str):
 async def api_get_user_extensions(
     account_id: AccountId = Depends(check_account_id_exists),
 ) -> list[Extension]:
-
-    user_extensions_ids = [
-        ue.extension for ue in await get_user_extensions(account_id.id)
-    ]
-    return [
-        ext
-        for ext in await get_valid_extensions(False)
-        if ext.code in user_extensions_ids
-    ]
+    async with db.connect() as conn:
+        user_extensions_ids = [
+            ue.extension for ue in await get_user_extensions(account_id.id, conn=conn)
+        ]
+        valid_extensions = [
+            ext
+            for ext in await get_valid_extensions(False, conn=conn)
+            if ext.code in user_extensions_ids
+        ]
+        return valid_extensions
 
 
 @extension_router.delete(
@@ -505,7 +508,16 @@ async def delete_extension_db(ext_id: str):
 # TODO: create a response model for this
 @extension_router.get("/all")
 async def extensions(account_id: AccountId = Depends(check_account_id_exists)):
-    installed_exts: list[InstallableExtension] = await get_installed_extensions()
+    async with db.connect() as conn:
+        installed_exts: list[InstallableExtension] = await get_installed_extensions(
+            conn=conn
+        )
+        all_ext_ids = [ext.code for ext in await get_valid_extensions(conn=conn)]
+        inactive_extensions = [
+            e.id for e in await get_installed_extensions(active=False, conn=conn)
+        ]
+        db_versions = await get_db_versions(conn=conn)
+
     installed_exts_ids = [e.id for e in installed_exts]
 
     installable_exts = await InstallableExtension.get_installable_extensions(
@@ -535,10 +547,6 @@ async def extensions(account_id: AccountId = Depends(check_account_id_exists)):
             e.name = installed_ext.name
             e.short_description = installed_ext.short_description
             e.icon = installed_ext.icon
-
-    all_ext_ids = [ext.code for ext in await get_valid_extensions()]
-    inactive_extensions = [e.id for e in await get_installed_extensions(active=False)]
-    db_versions = await get_db_versions()
 
     extension_data = [
         {

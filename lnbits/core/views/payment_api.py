@@ -18,6 +18,7 @@ from lnbits.core.crud.payments import (
     update_payment,
 )
 from lnbits.core.crud.users import get_account
+from lnbits.core.db import db
 from lnbits.core.models import (
     CancelInvoice,
     CreateInvoice,
@@ -69,7 +70,6 @@ from ..services import (
     perform_withdraw,
     settle_hold_invoice,
     update_pending_payment,
-    update_pending_payments,
 )
 
 payment_router = APIRouter(prefix="/api/v1/payments", tags=["Payments"])
@@ -87,7 +87,6 @@ async def api_payments(
     key_info: BaseWalletTypeInfo = Depends(require_base_invoice_key),
     filters: Filters = Depends(parse_filters(PaymentFilters)),
 ):
-    await update_pending_payments(key_info.wallet.id)
     return await get_payments(
         wallet_id=key_info.wallet.id,
         pending=True,
@@ -107,7 +106,6 @@ async def api_payments_history(
     group: DateTrunc = Query("day"),
     filters: Filters[PaymentFilters] = Depends(parse_filters(PaymentFilters)),
 ):
-    await update_pending_payments(key_info.wallet.id)
     return await get_payments_history(key_info.wallet.id, group, filters)
 
 
@@ -186,18 +184,24 @@ async def api_payments_paginated(
     ),
     filters: Filters = Depends(parse_filters(PaymentFilters)),
 ) -> Page[Payment]:
-    page = await get_payments_paginated(
-        wallet_id=key_info.wallet.id,
-        filters=filters,
-    )
-    if not recheck_pending:
-        return page
+    async with db.connect() as conn:
+        page = await get_payments_paginated(
+            wallet_id=key_info.wallet.id,
+            filters=filters,
+            conn=conn,
+        )
+        if not recheck_pending:
+            return page
 
-    for payment in page.data:
-        if payment.pending:
-            await update_pending_payment(payment)
+        payments = []
+        for payment in page.data:
+            if payment.pending:
+                refreshed_payment = await update_pending_payment(payment, conn=conn)
+                payments.append(refreshed_payment)
+            else:
+                payments.append(payment)
 
-    return page
+    return Page(data=payments, total=page.total)
 
 
 @payment_router.get(
@@ -219,10 +223,10 @@ async def api_all_payments_paginated(
         # regular user can only see payments from their wallets
         for_user_id = account_id.id
 
-    return await get_payments_paginated(
-        filters=filters,
-        user_id=for_user_id,
-    )
+    async with db.connect() as conn:
+        return await get_payments_paginated(
+            filters=filters, user_id=for_user_id, conn=conn
+        )
 
 
 @payment_router.post(
