@@ -4,10 +4,27 @@ window.app.component('lnbits-wallet-new', {
   data() {
     return {
       walletTypes: [{label: 'Lightning Wallet', value: 'lightning'}],
-      newWallet: {name: '', sharedWalletId: ''}
+      wallet: {name: '', sharedWalletId: ''},
+      showNewWalletDialog: false
+    }
+  },
+  watch: {
+    'g.newWalletType'(val) {
+      if (val === null) return
+      this.showNewWalletDialog = true
+    },
+    showNewWalletDialog(val) {
+      if (val === true) return
+      this.reset()
     }
   },
   computed: {
+    isLightning() {
+      return this.g.newWalletType === 'lightning'
+    },
+    isLightningShared() {
+      return this.g.newWalletType === 'lightning-shared'
+    },
     inviteWalletOptions() {
       return (this.g.user?.extra?.wallet_invite_requests || []).map(i => ({
         label: `${i.to_wallet_name} (from ${i.from_user_name})`,
@@ -16,11 +33,16 @@ window.app.component('lnbits-wallet-new', {
     }
   },
   methods: {
+    reset() {
+      this.showNewWalletDialog = false
+      this.g.newWalletType = null
+      this.wallet = {name: '', sharedWalletId: ''}
+    },
     async submitRejectWalletInvitation() {
       try {
         const inviteRequests = this.g.user.extra.wallet_invite_requests || []
         const invite = inviteRequests.find(
-          invite => invite.to_wallet_id === this.newWallet.sharedWalletId
+          invite => invite.to_wallet_id === this.wallet.sharedWalletId
         )
         if (!invite) {
           Quasar.Notify.create({
@@ -46,8 +68,8 @@ window.app.component('lnbits-wallet-new', {
         LNbits.utils.notifyApiError(err)
       }
     },
-    async submitAddWallet() {
-      const data = this.newWallet
+    submitAddWallet() {
+      const data = this.wallet
       if (this.g.newWalletType === 'lightning' && !data.name) {
         this.$q.notify({
           message: 'Please enter a name for the wallet',
@@ -55,7 +77,6 @@ window.app.component('lnbits-wallet-new', {
         })
         return
       }
-
       if (this.g.newWalletType === 'lightning-shared' && !data.sharedWalletId) {
         this.$q.notify({
           message: 'Missing a shared wallet ID',
@@ -63,19 +84,20 @@ window.app.component('lnbits-wallet-new', {
         })
         return
       }
-      try {
-        await LNbits.api.createWallet(
-          this.g.user.wallets[0],
-          data.name,
-          this.g.newWalletType,
-          {
-            shared_wallet_id: data.sharedWalletId
-          }
-        )
-      } catch (e) {
-        console.warn(e)
-        LNbits.utils.notifyApiError(e)
-      }
+      LNbits.api
+        .createWallet(data.name, this.g.newWalletType, {
+          shared_wallet_id: data.sharedWalletId
+        })
+        .then(res => {
+          this.$q.notify({
+            message: 'Wallet created successfully',
+            color: 'positive'
+          })
+          this.reset()
+          this.g.user.wallets.push(LNbits.map.wallet(res.data))
+          this.g.lastWalletId = res.data.id
+          this.$router.push(`/wallet/${res.data.id}`)
+        })
     }
   },
   created() {
